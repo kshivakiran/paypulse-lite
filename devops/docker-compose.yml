@@ -1,0 +1,85 @@
+# Docker Compose — PayPulse Lite Full Stack (Unit-IV)
+# Orchestrates PostgreSQL, MongoDB, Backend API, and Frontend services.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: paypulse-postgres
+    environment:
+      POSTGRES_DB: paypulse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paypulse-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: paypulse-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paypulse-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: paypulse-backend
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      USE_POSTGRES: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: paypulse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      MONGO_URI: mongodb://mongodb:27017/paypulse_audit
+      JWT_SECRET: ${JWT_SECRET:-super_secret_paypulse_key_2026}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - paypulse-network
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: paypulse-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - paypulse-network
+
+volumes:
+  pgdata:
+  mongodata:
+
+networks:
+  paypulse-network:
+    driver: bridge

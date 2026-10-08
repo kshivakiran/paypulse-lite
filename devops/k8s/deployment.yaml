@@ -1,0 +1,138 @@
+# ============================================================
+# Kubernetes Manifests for PayPulse Lite (Unit-IV & Unit-V)
+# Includes: Secret, ConfigMap, Deployment, Service, HPA
+# ============================================================
+
+# --- Kubernetes Secret for sensitive credentials ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paypulse-secrets
+  labels:
+    app: paypulse-backend
+type: Opaque
+stringData:
+  JWT_SECRET: "super_secret_paypulse_key_2026"
+  POSTGRES_PASSWORD: "postgres"
+---
+# --- ConfigMap for non-sensitive configuration ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paypulse-config
+  labels:
+    app: paypulse-backend
+data:
+  PORT: "5000"
+  NODE_ENV: "production"
+  USE_POSTGRES: "false"
+  POSTGRES_HOST: "localhost"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "paypulse_db"
+  POSTGRES_USER: "postgres"
+  MONGO_URI: "mongodb://localhost:27017/paypulse_audit"
+---
+# --- Backend Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paypulse-backend-deployment
+  labels:
+    app: paypulse-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paypulse-backend
+  template:
+    metadata:
+      labels:
+        app: paypulse-backend
+    spec:
+      containers:
+      - name: paypulse-backend
+        image: paypulse-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: paypulse-config
+        env:
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: paypulse-secrets
+              key: JWT_SECRET
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: paypulse-secrets
+              key: POSTGRES_PASSWORD
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+---
+# --- Backend Service (LoadBalancer for external access) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paypulse-backend-service
+  labels:
+    app: paypulse-backend
+spec:
+  type: LoadBalancer
+  selector:
+    app: paypulse-backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP
+---
+# --- Horizontal Pod Autoscaler (HPA - Unit IV & V) ---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paypulse-backend-hpa
+  labels:
+    app: paypulse-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paypulse-backend-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
