@@ -21,6 +21,22 @@ app.use(express.json({ limit: '10kb' })); // Limit body size to prevent abuse
 app.use(generalLimiter);
 app.use(metricsMiddleware);
 
+// --- Root Welcome Route ---
+app.get('/', (_req, res) => {
+  res.json({
+    service: 'PayPulse Lite REST API Server',
+    status: 'ONLINE',
+    version: '1.0.0',
+    frontendUrl: 'http://localhost:3000',
+    documentation: {
+      health: '/health',
+      metrics: '/api/v1/metrics',
+      apiBase: '/api/v1',
+    },
+    message: 'Welcome to PayPulse Lite API. Open http://localhost:3000 in your browser to access the Web Portal.',
+  });
+});
+
 // --- Health Check ---
 app.get('/health', (_req, res) => {
   res.json({ status: 'UP', service: 'PayPulse Lite API', timestamp: new Date() });
@@ -31,7 +47,7 @@ app.use('/api/v1', apiRoutes);
 
 // --- 404 Handler ---
 app.use((_req, res) => {
-  res.status(404).json({ error: 'Route not found.' });
+  res.status(404).json({ error: 'Route not found. Valid API routes are under /api/v1. Web portal is at http://localhost:3000' });
 });
 
 // --- Global Error Handler (Task 2.5) ---

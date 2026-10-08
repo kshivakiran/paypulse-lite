@@ -17,25 +17,32 @@ export default function Dashboard() {
   const fetchDashboardData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const [txRes, auditRes] = await Promise.allSettled([
+      const requests: Promise<any>[] = [
         api.get<{ transactions: TransactionRecord[] }>('/wallet/transactions'),
-        api.get<{ logs: AuditLogEntry[] }>('/audit-logs'),
-      ]);
+      ];
 
-      if (txRes.status === 'fulfilled') {
+      if (user?.role === 'admin') {
+        requests.push(api.get<{ logs: AuditLogEntry[] }>('/audit-logs'));
+      }
+
+      const results = await Promise.allSettled(requests);
+      const txRes = results[0];
+      const auditRes = results[1];
+
+      if (txRes && txRes.status === 'fulfilled') {
         setTransactions(txRes.value.data.transactions || []);
       }
-      if (auditRes.status === 'fulfilled') {
+      if (auditRes && auditRes.status === 'fulfilled') {
         setAuditLogs(auditRes.value.data.logs || []);
       }
 
       await refreshWallet();
     } catch {
-      // errors handled by interceptor
+      // errors handled gracefully
     } finally {
       setIsRefreshing(false);
     }
-  }, [refreshWallet]);
+  }, [refreshWallet, user?.role]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -60,7 +67,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden sm:inline-block text-xs bg-gray-800/80 border border-gray-700/60 px-3 py-1.5 rounded-lg text-gray-300">
-            {user?.name} ({user?.email})
+            {user?.name} ({user?.email}) &bull; <span className="uppercase text-indigo-400 font-medium">{user?.role}</span>
           </span>
           <button
             onClick={fetchDashboardData}
@@ -90,7 +97,7 @@ export default function Dashboard() {
         {/* Right Column: SQL Ledger & NoSQL Audit */}
         <div className="space-y-6 md:col-span-2">
           <TransactionTable transactions={transactions} walletId={wallet?.id} />
-          <AuditLogStream auditLogs={auditLogs} />
+          <AuditLogStream auditLogs={auditLogs} isAdmin={user?.role === 'admin'} />
         </div>
       </main>
     </div>

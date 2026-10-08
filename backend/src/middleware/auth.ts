@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UnauthorizedError } from '../utils/errors';
+import { UnauthorizedError, ForbiddenError } from '../utils/errors';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -49,10 +49,11 @@ export const authenticateJWT = (req: AuthRequest, res: Response, next: NextFunct
 
 /**
  * Middleware to restrict access to admin users only.
+ * Returns 403 Forbidden (not 401 Unauthorized) since user is authenticated.
  */
-export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const requireAdmin = (req: AuthRequest, _res: Response, next: NextFunction) => {
   if (req.user?.role !== 'admin') {
-    return next(new UnauthorizedError('Admin access required.'));
+    return next(new ForbiddenError('Admin access required.'));
   }
   next();
 };

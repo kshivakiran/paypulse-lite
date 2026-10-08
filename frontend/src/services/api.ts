@@ -23,9 +23,17 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      localStorage.removeItem('paypulse_token');
-      localStorage.removeItem('paypulse_user');
-      window.location.reload();
+      const url = error.config?.url || '';
+      // Only log out if it's an authenticated session endpoint failing,
+      // NOT during login attempts or non-critical telemetry endpoints
+      const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+      const isTelemetry = url.includes('/audit-logs');
+
+      if (!isAuthEndpoint && !isTelemetry) {
+        localStorage.removeItem('paypulse_token');
+        localStorage.removeItem('paypulse_user');
+        window.location.reload();
+      }
     }
     return Promise.reject(error);
   }
