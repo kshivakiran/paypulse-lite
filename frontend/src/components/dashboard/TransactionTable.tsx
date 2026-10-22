@@ -10,7 +10,9 @@ interface TransactionTableProps {
 const formatBalance = (val: string | number | undefined): string => {
   if (val === undefined || val === null) return '0.00';
   const num = typeof val === 'number' ? val : parseFloat(val);
-  return isNaN(num) ? '0.00' : num.toFixed(2);
+  return isNaN(num)
+    ? '0.00'
+    : num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 export default function TransactionTable({ transactions, walletId }: TransactionTableProps) {
@@ -58,7 +60,7 @@ export default function TransactionTable({ transactions, walletId }: Transaction
                         isSender ? 'text-rose-400' : 'text-emerald-400'
                       }`}
                     >
-                      {isSender ? '-' : '+'}${formatBalance(tx.amount)}
+                      {isSender ? '-' : '+'}₹{formatBalance(tx.amount)}
                     </td>
                     <td className="p-3">
                       <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-[10px] font-semibold">

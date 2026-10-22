@@ -113,7 +113,7 @@ export default function LoginPage() {
             ) : isLogin ? (
               'Login to Wallet'
             ) : (
-              'Create Account ($1,000 Bonus)'
+              'Create Account (₹1,000 Bonus)'
             )}
           </button>
         </form>

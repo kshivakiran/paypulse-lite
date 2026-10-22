@@ -114,7 +114,7 @@ export class TransferService {
 
         if (senderBalanceCents < amountCents) {
           const available = fromCents(senderBalanceCents);
-          throw new BadRequestError(`Insufficient funds. Available: $${available.toFixed(2)}`);
+          throw new BadRequestError(`Insufficient funds. Available: ₹${available.toFixed(2)}`);
         }
 
         const newSenderCents = senderBalanceCents - amountCents;
@@ -129,7 +129,7 @@ export class TransferService {
             senderWalletId: lockedSender.id,
             receiverWalletId: lockedReceiver.id,
             amount,
-            currency: 'USD',
+            currency: 'INR',
             status: 'COMPLETED',
             referenceNote,
           },

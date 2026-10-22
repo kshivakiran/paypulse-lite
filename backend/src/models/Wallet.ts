@@ -46,7 +46,7 @@ Wallet.init(
     },
     currency: {
       type: DataTypes.STRING(3),
-      defaultValue: 'USD',
+      defaultValue: 'INR',
     },
     status: {
       type: DataTypes.ENUM('active', 'frozen'),

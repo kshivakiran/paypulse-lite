@@ -30,12 +30,12 @@ describe('TransferService Concurrency & Overspend Invariant Tests (Unit-III)', (
       id: crypto.randomUUID(),
       userId: sender.id,
       balance: 1000.0,
-      currency: 'USD',
+      currency: 'INR',
       status: 'active',
     });
     senderWalletId = senderWallet.id;
 
-    // Create Receiver with $0.00 starting balance
+    // Create Receiver with ₹0.00 starting balance
     const receiver = await User.create({
       id: crypto.randomUUID(),
       name: 'Concurrent Receiver',
@@ -49,7 +49,7 @@ describe('TransferService Concurrency & Overspend Invariant Tests (Unit-III)', (
       id: crypto.randomUUID(),
       userId: receiver.id,
       balance: 0.0,
-      currency: 'USD',
+      currency: 'INR',
       status: 'active',
     });
     receiverWalletId = receiverWallet.id;
@@ -116,7 +116,7 @@ describe('TransferService Concurrency & Overspend Invariant Tests (Unit-III)', (
         id: crypto.randomUUID(),
         userId: senderUserId,
         balance: -250.0,
-        currency: 'USD',
+        currency: 'INR',
         status: 'active',
       })
     ).rejects.toThrow();

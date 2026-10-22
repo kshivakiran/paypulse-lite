@@ -21,7 +21,7 @@ export default function TransferForm({ onTransferComplete }: TransferFormProps) 
     try {
       const parsedAmount = parseFloat(amount);
       if (isNaN(parsedAmount) || parsedAmount <= 0) {
-        throw new Error('Please enter a valid transfer amount greater than $0.');
+        throw new Error('Please enter a valid transfer amount greater than ₹0.');
       }
 
       const res = await api.post('/wallet/transfer', {
@@ -82,7 +82,7 @@ export default function TransferForm({ onTransferComplete }: TransferFormProps) 
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1 font-medium">Amount ($)</label>
+          <label className="block text-xs text-gray-400 mb-1 font-medium">Amount (₹)</label>
           <input
             type="number"
             step="0.01"

@@ -21,7 +21,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await User.create({ id: userId, name, email, passwordHash, role: 'customer' });
-    const wallet = await Wallet.create({ id: walletId, userId, balance: 1000.0, currency: 'USD', status: 'active' });
+    const wallet = await Wallet.create({ id: walletId, userId, balance: 1000.0, currency: 'INR', status: 'active' });
 
     if (mongoose.connection.readyState === 1) {
       AuditLog.create({
