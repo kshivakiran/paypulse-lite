@@ -1,0 +1,95 @@
+# ============================================================
+# PayPulse Lite — Pull Request Quality Gate
+# Enforces code quality standards before any PR merges to main
+# ============================================================
+
+name: 🔐 Pull Request Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+
+  # ──────────────────────────────────────────────────────────
+  # PR SUMMARY & AUTO-LABEL
+  # ──────────────────────────────────────────────────────────
+  pr-quality-gate:
+    name: 🔐 Quality Gate — PR #${{ github.event.number }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install Dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline
+
+      - name: 🔷 TypeScript Strict Check
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: 🔐 Security Audit — No HIGH Vulnerabilities
+        working-directory: backend
+        run: npm audit --audit-level=high
+
+      - name: 🧪 Full Test Suite Must Pass 100%
+        working-directory: backend
+        run: |
+          npm test -- --runInBand 2>&1 | tee pr-test-output.txt
+          echo ""
+          echo "=== TEST GATE CHECK ==="
+          if grep -q "FAIL" pr-test-output.txt; then
+            echo "❌ TEST GATE FAILED: There are test failures in this PR."
+            exit 1
+          else
+            echo "✅ TEST GATE PASSED: All tests pass."
+          fi
+        env:
+          NODE_ENV: test
+          JWT_SECRET: pr_gate_secret_2026
+          USE_POSTGRES: 'false'
+
+      - name: 🏗️ Production Build Must Succeed
+        working-directory: backend
+        run: npm run build
+
+      - name: 📊 PR Analysis Summary
+        if: always()
+        run: |
+          TESTS=$(grep -oP 'Tests:\s+\K[0-9]+(?= passed)' backend/pr-test-output.txt || echo "?")
+          FAILED=$(grep -oP 'Tests:.*\K[0-9]+(?= failed)' backend/pr-test-output.txt || echo "0")
+          CHANGED=$(git diff --name-only origin/main...HEAD | wc -l)
+          ADDED=$(git diff --stat origin/main...HEAD | tail -1 | grep -oP '\d+(?= insertion)' || echo "0")
+          REMOVED=$(git diff --stat origin/main...HEAD | tail -1 | grep -oP '\d+(?= deletion)' || echo "0")
+
+          echo "## 🔐 PR Quality Gate Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> PR **#${{ github.event.number }}**: ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "> Author: **${{ github.event.pull_request.user.login }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Diff Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|:-------|:-----:|" >> $GITHUB_STEP_SUMMARY
+          echo "| Files Changed | $CHANGED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines Added | +$ADDED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines Removed | -$REMOVED |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Gate Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|:-----|:------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript Compile | ${{ job.status == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Audit | ${{ job.status == 'success' && '✅ Clean' || '❌ Vulnerabilities Found' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests Passed | $TESTS (Failed: $FAILED) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Production Build | ${{ job.status == 'success' && '✅ Compiles' || '❌ Build Error' }} |" >> $GITHUB_STEP_SUMMARY

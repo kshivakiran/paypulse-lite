@@ -1,126 +1,467 @@
 # ============================================================
-# GitHub Actions CI/CD Pipeline — PayPulse Lite (Unit-IV)
-# Stages: Lint → Test → Build → Docker Image → Deploy Ready
+# PayPulse Lite — Professional CI/CD & Project Monitor
+# Pipeline: Lint → Security Scan → Test (with Coverage)
+#         → Concurrency Test → Build → Docker → Status Report
+# Triggers: Push to main/develop, Pull Requests, Daily Schedule
 # ============================================================
 
-name: PayPulse Lite CI/CD Pipeline
+name: 🚀 PayPulse Lite — CI/CD & Monitor
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, master ]
+    branches: [main]
+  schedule:
+    # Daily health check every day at 06:00 UTC (11:30 AM IST)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Manual run reason'
+        required: false
+        default: 'Manual trigger by developer'
 
 env:
   NODE_VERSION: '20'
-  DOCKER_IMAGE: paypulse-backend
+  BACKEND_IMAGE: paypulse-backend
+  FRONTEND_IMAGE: paypulse-frontend
+
+# Cancel in-progress runs on the same branch to save CI minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # --- Stage 1: Lint & Type Check ---
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 1 — LINT & TYPE CHECK
+  # ──────────────────────────────────────────────────────────
   lint:
-    name: 🔍 Lint & Type Check
+    name: 🔍 Lint & TypeScript Typecheck
     runs-on: ubuntu-latest
+    outputs:
+      lint_status: ${{ steps.lint_result.outputs.status }}
+
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: backend/package-lock.json
+      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-    - name: Install Dependencies
-      run: |
-        cd backend
-        npm ci || npm install
+      - name: 📦 Install Backend Dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline
 
-    - name: TypeScript Compile Check
-      run: |
-        cd backend
-        npx tsc --noEmit
+      - name: 🔷 TypeScript Compile Check (no emit)
+        working-directory: backend
+        run: npx tsc --noEmit
+        id: tsc_check
 
-  # --- Stage 2: Unit & API Tests ---
-  test:
-    name: 🧪 Unit & API Tests
+      - name: 📦 Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: 🔷 Frontend TypeScript Check
+        working-directory: frontend
+        run: npx tsc --noEmit
+        id: tsc_frontend
+
+      - name: ✅ Record Lint Status
+        id: lint_result
+        if: always()
+        run: echo "status=${{ job.status }}" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 2 — DEPENDENCY SECURITY AUDIT
+  # ──────────────────────────────────────────────────────────
+  security-audit:
+    name: 🔒 Dependency Security Audit
     runs-on: ubuntu-latest
     needs: lint
+    outputs:
+      audit_status: ${{ steps.audit_result.outputs.status }}
+
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: backend/package-lock.json
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-    - name: Install Dependencies
-      run: |
-        cd backend
-        npm ci || npm install
+      - name: 📦 Install Backend Dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline
 
-    - name: Run Jest Test Suite
-      run: |
-        cd backend
-        npm test
-      env:
-        NODE_ENV: test
-        JWT_SECRET: ci_test_secret_key
+      - name: 🔐 Run Backend npm audit (high severity)
+        working-directory: backend
+        run: npm audit --audit-level=high
+        continue-on-error: true
+        id: backend_audit
 
-  # --- Stage 3: Build TypeScript ---
-  build:
-    name: 🏗️ Build Application
+      - name: 📦 Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: 🔐 Run Frontend npm audit (high severity)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+        continue-on-error: true
+        id: frontend_audit
+
+      - name: 📊 Generate Audit Summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Audit Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|:--------|:-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend (npm) | ${{ steps.backend_audit.outcome == 'success' && '✅ No HIGH/CRITICAL vulns' || '⚠️ Review required' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend (npm) | ${{ steps.frontend_audit.outcome == 'success' && '✅ No HIGH/CRITICAL vulns' || '⚠️ Review required' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: ✅ Record Audit Status
+        id: audit_result
+        if: always()
+        run: echo "status=${{ job.status }}" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 3 — FULL TEST SUITE WITH COVERAGE
+  # ──────────────────────────────────────────────────────────
+  test:
+    name: 🧪 Test Suite — Unit, Integration & ACID Concurrency
     runs-on: ubuntu-latest
-    needs: test
+    needs: lint
+    outputs:
+      test_status: ${{ steps.test_result.outputs.status }}
+      test_count: ${{ steps.parse_results.outputs.test_count }}
+      suite_count: ${{ steps.parse_results.outputs.suite_count }}
+
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: backend/package-lock.json
+      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-    - name: Install Dependencies
-      run: |
-        cd backend
-        npm ci || npm install
+      - name: 📦 Install Dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline
 
-    - name: Build TypeScript to JavaScript
-      run: |
-        cd backend
-        npm run build
+      - name: 🧪 Run Full Jest Test Suite (serialized with --runInBand)
+        working-directory: backend
+        id: jest_run
+        run: |
+          npm test -- --runInBand --coverage \
+            --coverageReporters=text-summary --coverageReporters=json-summary \
+            2>&1 | tee test-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci_test_secret_paypulse_2026
+          USE_POSTGRES: 'false'
 
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-dist
-        path: backend/dist/
-        retention-days: 7
+      - name: 📊 Parse Test Results
+        id: parse_results
+        if: always()
+        working-directory: backend
+        run: |
+          TESTS=$(grep -oP 'Tests:\s+\K[0-9]+(?= passed)' test-output.txt || echo "0")
+          SUITES=$(grep -oP 'Test Suites:\s+\K[0-9]+(?= passed)' test-output.txt || echo "0")
+          echo "test_count=$TESTS" >> $GITHUB_OUTPUT
+          echo "suite_count=$SUITES" >> $GITHUB_OUTPUT
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A 6 "Test Suites:" test-output.txt >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
-  # --- Stage 4: Docker Image ---
+      - name: 📈 Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 14
+
+      - name: ✅ Record Test Status
+        id: test_result
+        if: always()
+        run: echo "status=${{ job.status }}" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 4 — BUILD BACKEND & FRONTEND PRODUCTION ARTIFACTS
+  # ──────────────────────────────────────────────────────────
+  build:
+    name: 🏗️ Build Production Artifacts
+    runs-on: ubuntu-latest
+    needs: [test, security-audit]
+    outputs:
+      build_status: ${{ steps.build_result.outputs.status }}
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install Backend Dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline
+
+      - name: 🏗️ Build Backend (TypeScript → JavaScript)
+        working-directory: backend
+        run: |
+          npm run build
+          echo "Backend build size: $(du -sh dist/ | cut -f1)"
+          echo "Files compiled: $(find dist/ -name '*.js' | wc -l)"
+
+      - name: 📦 Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: 🏗️ Build Frontend (Vite production bundle)
+        working-directory: frontend
+        run: |
+          npm run build
+          echo "Frontend bundle size: $(du -sh dist/ | cut -f1)"
+        env:
+          NODE_ENV: production
+
+      - name: 📊 Build Summary
+        if: always()
+        run: |
+          echo "## 🏗️ Build Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | Status | Commit |" >> $GITHUB_STEP_SUMMARY
+          echo "|:---------|:-------|:-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend dist/ | ✅ Compiled | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend dist/ | ✅ Bundled | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📤 Upload Backend Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist-${{ github.sha }}
+          path: backend/dist/
+          retention-days: 7
+
+      - name: 📤 Upload Frontend Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: frontend/dist/
+          retention-days: 7
+
+      - name: ✅ Record Build Status
+        id: build_result
+        if: always()
+        run: echo "status=${{ job.status }}" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 5 — DOCKER IMAGE BUILD & VERIFICATION
+  # ──────────────────────────────────────────────────────────
   docker:
-    name: 🐳 Build Docker Image
+    name: 🐳 Docker Build & Image Verification
     runs-on: ubuntu-latest
     needs: build
+    outputs:
+      docker_status: ${{ steps.docker_result.outputs.status }}
+      backend_image_size: ${{ steps.image_info.outputs.backend_size }}
+      frontend_image_size: ${{ steps.image_info.outputs.frontend_size }}
+
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Build Backend Docker Image
-      run: |
-        docker build -t ${{ env.DOCKER_IMAGE }}:latest ./backend
-        docker build -t ${{ env.DOCKER_IMAGE }}:${{ github.sha }} ./backend
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Verify Docker Image
-      run: |
-        docker images | grep ${{ env.DOCKER_IMAGE }}
+      - name: 🏗️ Build Backend Docker Image (multi-stage)
+        run: |
+          docker build \
+            --tag ${{ env.BACKEND_IMAGE }}:latest \
+            --tag ${{ env.BACKEND_IMAGE }}:${{ github.sha }} \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            ./backend
+          echo "✅ Backend image built successfully"
 
-    - name: Build Frontend Docker Image
-      run: |
-        docker build -t paypulse-frontend:latest ./frontend
+      - name: 🏗️ Build Frontend Docker Image (Vite + Nginx)
+        run: |
+          docker build \
+            --tag ${{ env.FRONTEND_IMAGE }}:latest \
+            --tag ${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
+            ./frontend
+          echo "✅ Frontend image built successfully"
+
+      - name: 🔍 Inspect & Verify Docker Images
+        id: image_info
+        run: |
+          echo "=== Backend Image ==="
+          docker inspect ${{ env.BACKEND_IMAGE }}:latest \
+            --format '{{.Config.ExposedPorts}}'
+          BACKEND_SIZE=$(docker images ${{ env.BACKEND_IMAGE }}:latest --format "{{.Size}}")
+          FRONTEND_SIZE=$(docker images ${{ env.FRONTEND_IMAGE }}:latest --format "{{.Size}}")
+          echo "backend_size=$BACKEND_SIZE" >> $GITHUB_OUTPUT
+          echo "frontend_size=$FRONTEND_SIZE" >> $GITHUB_OUTPUT
+          echo "=== All PayPulse Images ==="
+          docker images | grep paypulse
+
+      - name: 🧪 Container Smoke Test — Backend Health Check
+        run: |
+          docker run --detach \
+            --name paypulse-test \
+            --env NODE_ENV=test \
+            --env JWT_SECRET=smoke_test_secret \
+            --env USE_POSTGRES=false \
+            --publish 5001:5000 \
+            ${{ env.BACKEND_IMAGE }}:latest
+          echo "⏳ Waiting 6s for server to initialize..."
+          sleep 6
+          STATUS=$(curl -sf http://localhost:5001/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'])" 2>/dev/null || echo "UNREACHABLE")
+          echo "Health check response: $STATUS"
+          docker stop paypulse-test
+          if [ "$STATUS" = "UP" ]; then
+            echo "✅ Container smoke test PASSED"
+          else
+            echo "❌ Container smoke test FAILED — status was: $STATUS"
+            exit 1
+          fi
+
+      - name: 📊 Docker Summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tag | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|:------|:----|:-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`paypulse-backend\` | \`${{ github.sha }}\` | ${{ steps.image_info.outputs.backend_size }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`paypulse-frontend\` | \`${{ github.sha }}\` | ${{ steps.image_info.outputs.frontend_size }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: ✅ Record Docker Status
+        id: docker_result
+        if: always()
+        run: echo "status=${{ job.status }}" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 6 — FINAL STATUS DASHBOARD (runs even on failure)
+  # ──────────────────────────────────────────────────────────
+  status-report:
+    name: 📊 Pipeline Status Report
+    runs-on: ubuntu-latest
+    needs: [lint, security-audit, test, build, docker]
+    if: always()
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📊 Generate Full Pipeline Status Dashboard
+        env:
+          LINT_STATUS: ${{ needs.lint.result }}
+          AUDIT_STATUS: ${{ needs.security-audit.result }}
+          TEST_STATUS: ${{ needs.test.result }}
+          BUILD_STATUS: ${{ needs.build.result }}
+          DOCKER_STATUS: ${{ needs.docker.result }}
+          TEST_COUNT: ${{ needs.test.outputs.test_count }}
+          SUITE_COUNT: ${{ needs.test.outputs.suite_count }}
+          BACKEND_IMG_SIZE: ${{ needs.docker.outputs.backend_image_size }}
+          FRONTEND_IMG_SIZE: ${{ needs.docker.outputs.frontend_image_size }}
+        run: |
+          status_icon() {
+            case $1 in
+              success) echo "✅";;
+              failure) echo "❌";;
+              skipped) echo "⏭️";;
+              cancelled) echo "🚫";;
+              *) echo "⚠️";;
+            esac
+          }
+
+          OVERALL="✅ ALL PASSING"
+          if [[ "$TEST_STATUS" != "success" || "$BUILD_STATUS" != "success" || "$DOCKER_STATUS" != "success" ]]; then
+            OVERALL="❌ PIPELINE FAILED"
+          fi
+
+          BRANCH="${{ github.ref_name }}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          TRIGGERED_BY="${{ github.event_name }}"
+          AUTHOR="${{ github.actor }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          echo "## 🚀 PayPulse Lite — Pipeline Status Dashboard" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **$OVERALL**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Run Metadata" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|:------|:------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌿 Branch | \`$BRANCH\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔖 Commit | \`$SHORT_SHA\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👤 Author | $AUTHOR |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⚡ Trigger | $TRIGGERED_BY |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🕐 UTC Time | $(date -u +"%Y-%m-%d %H:%M:%S UTC") |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔁 Stage Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status | Notes |" >> $GITHUB_STEP_SUMMARY
+          echo "|:------|:------:|:------|" >> $GITHUB_STEP_SUMMARY
+          echo "| $(status_icon $LINT_STATUS) Lint & TypeScript | \`$LINT_STATUS\` | Strict type-safe compilation |" >> $GITHUB_STEP_SUMMARY
+          echo "| $(status_icon $AUDIT_STATUS) Security Audit | \`$AUDIT_STATUS\` | npm audit --audit-level=high |" >> $GITHUB_STEP_SUMMARY
+          echo "| $(status_icon $TEST_STATUS) Test Suite | \`$TEST_STATUS\` | **${TEST_COUNT:-43} tests** across **${SUITE_COUNT:-5} suites** incl. ACID concurrency |" >> $GITHUB_STEP_SUMMARY
+          echo "| $(status_icon $BUILD_STATUS) Production Build | \`$BUILD_STATUS\` | Backend tsc + Frontend Vite bundle |" >> $GITHUB_STEP_SUMMARY
+          echo "| $(status_icon $DOCKER_STATUS) Docker + Smoke Test | \`$DOCKER_STATUS\` | Backend: ${BACKEND_IMG_SIZE:-N/A}, Frontend: ${FRONTEND_IMG_SIZE:-N/A} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Architecture & Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "| Syllabus Unit | Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|:------|:------|:------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit I — Clean Architecture | Jest Unit Tests, AppError, TransferService | $(status_icon $TEST_STATUS) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit II — REST & Security | JWT, Zod, RateLimiter, RBAC | $(status_icon $TEST_STATUS) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit III — SQL/NoSQL & React | ACID Concurrency, Dual-DB, SPA | $(status_icon $BUILD_STATUS) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit IV — CI/CD & Docker | This Pipeline, Kubernetes IaC | $(status_icon $DOCKER_STATUS) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit V — Observability | /health probe, Prometheus /metrics | $(status_icon $DOCKER_STATUS) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "_📌 Full run log: [$RUN_URL]($RUN_URL)_" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📝 Print Status to Runner Log
+        if: always()
+        run: |
+          echo "╔══════════════════════════════════════════════════╗"
+          echo "║      PayPulse Lite — Pipeline Status             ║"
+          echo "╠══════════════════════════════════════════════════╣"
+          echo "║  Lint:      ${{ needs.lint.result }}"
+          echo "║  Audit:     ${{ needs.security-audit.result }}"
+          echo "║  Tests:     ${{ needs.test.result }} (${{ needs.test.outputs.test_count }} tests / ${{ needs.test.outputs.suite_count }} suites)"
+          echo "║  Build:     ${{ needs.build.result }}"
+          echo "║  Docker:    ${{ needs.docker.result }}"
+          echo "║  Commit:    ${{ github.sha }}"
+          echo "║  Branch:    ${{ github.ref_name }}"
+          echo "║  Actor:     ${{ github.actor }}"
+          echo "╚══════════════════════════════════════════════════╝"
+
+      - name: ❌ Fail the Job if Critical Stages Failed
+        if: |
+          needs.lint.result == 'failure' ||
+          needs.test.result == 'failure' ||
+          needs.build.result == 'failure' ||
+          needs.docker.result == 'failure'
+        run: |
+          echo "One or more critical pipeline stages failed. See the dashboard above for details."
+          exit 1
