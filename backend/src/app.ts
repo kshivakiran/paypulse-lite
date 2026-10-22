@@ -29,11 +29,12 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, Postman, curl)
       if (!origin) return callback(null, true);
-      // Allow any subdomain of vercel.app or onrender.com for previews
+      // Allow any subdomain of vercel.app, onrender.com, or github.io
       const isAllowed =
         allowedOrigins.includes(origin) ||
         /\.vercel\.app$/.test(origin) ||
-        /\.onrender\.com$/.test(origin);
+        /\.onrender\.com$/.test(origin) ||
+        /\.github\.io$/.test(origin);
       if (isAllowed) return callback(null, true);
       return callback(new Error(`CORS: Origin '${origin}' not permitted.`));
     },
