@@ -40,6 +40,9 @@ Wallet.init(
       type: DataTypes.DECIMAL(12, 2),
       allowNull: false,
       defaultValue: 1000.0,
+      validate: {
+        min: 0,
+      },
     },
     currency: {
       type: DataTypes.STRING(3),

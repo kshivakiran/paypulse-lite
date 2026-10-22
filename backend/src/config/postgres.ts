@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const usePostgres = process.env.USE_POSTGRES === 'true';
+const usePostgres = process.env.NODE_ENV !== 'test' && process.env.USE_POSTGRES === 'true';
 
 export const sequelize = usePostgres
   ? new Sequelize(

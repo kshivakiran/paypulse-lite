@@ -61,6 +61,25 @@ const startServer = async () => {
   await sequelize.sync();
   console.log('✅ Relational Database Schema Synced');
 
+  // Enforce DB-level constraint for non-negative balances (Unit-III Financial Invariant)
+  try {
+    if (sequelize.getDialect() === 'postgres') {
+      await sequelize.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'check_balance_non_negative'
+          ) THEN
+            ALTER TABLE "wallets" ADD CONSTRAINT check_balance_non_negative CHECK (balance >= 0);
+          END IF;
+        END $$;
+      `);
+      console.log('🔒 Database Constraint Verified: check_balance_non_negative');
+    }
+  } catch (constraintErr: any) {
+    console.warn('⚠️ Could not verify DB check constraint:', constraintErr.message);
+  }
+
   app.listen(PORT, () => {
     console.log(`🚀 PayPulse Lite Server running on http://localhost:${PORT}`);
     console.log(`📊 Prometheus Metrics at http://localhost:${PORT}/api/v1/metrics`);
