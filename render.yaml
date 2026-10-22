@@ -1,0 +1,56 @@
+services:
+  # ── Backend: Express + TypeScript API ──────────────────────
+  - type: web
+    name: paypulse-backend
+    runtime: node
+    region: singapore          # Closest to India
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/app.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: USE_POSTGRES
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true    # Render auto-generates a secure random secret
+      - key: JWT_EXPIRES_IN
+        value: 1h
+      - key: FRONTEND_URL
+        value: https://paypulse-lite.vercel.app
+      # PostgreSQL — use Render's managed database (set below in databases section)
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: paypulse-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: paypulse-postgres
+          property: port
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: paypulse-postgres
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: paypulse-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: paypulse-postgres
+          property: password
+      # MongoDB Atlas — set this manually in Render dashboard
+      - key: MONGO_URI
+        sync: false            # Set manually: mongodb+srv://...
+
+  # ── PostgreSQL Managed Database ────────────────────────────
+databases:
+  - name: paypulse-postgres
+    databaseName: paypulse_db
+    user: paypulse_user
+    region: singapore
+    plan: free

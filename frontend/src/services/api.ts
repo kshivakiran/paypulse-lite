@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-const API_BASE = '/api/v1';
+// In production (Vercel), the frontend calls the Render backend directly.
+// In development, Vite's proxy rewrites /api → localhost:5000.
+const API_BASE =
+  import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api/v1`
+    : '/api/v1';
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -9,7 +14,7 @@ export const api = axios.create({
   },
 });
 
-// Add Axios Request Interceptor to automatically attach JWT token
+// Automatically attach JWT Bearer token to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('paypulse_token');
   if (token) {
@@ -18,14 +23,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Add Axios Response Interceptor for global error handling
+// Global 401 handler — log out user only when session expires, not on auth endpoints
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
       const url = error.config?.url || '';
-      // Only log out if it's an authenticated session endpoint failing,
-      // NOT during login attempts or non-critical telemetry endpoints
       const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
       const isTelemetry = url.includes('/audit-logs');
 
