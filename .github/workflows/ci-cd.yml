@@ -326,16 +326,30 @@ jobs:
         run: |
           docker run --detach \
             --name paypulse-test \
-            --env NODE_ENV=test \
-            --env JWT_SECRET=smoke_test_secret \
+            --env NODE_ENV=production \
+            --env JWT_SECRET=smoke_test_secret_for_ci_2026 \
             --env USE_POSTGRES=false \
             --publish 5001:5000 \
             ${{ env.BACKEND_IMAGE }}:latest
-          echo "⏳ Waiting 6s for server to initialize..."
-          sleep 6
-          STATUS=$(curl -sf http://localhost:5001/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'])" 2>/dev/null || echo "UNREACHABLE")
-          echo "Health check response: $STATUS"
-          docker stop paypulse-test
+
+          echo "⏳ Waiting for backend container to report healthy..."
+          STATUS="UNREACHABLE"
+          for i in $(seq 1 12); do
+            sleep 2
+            RESP=$(curl -sf http://localhost:5001/health 2>/dev/null || echo "")
+            if echo "$RESP" | grep -q '"status":"UP"'; then
+              STATUS="UP"
+              echo "✅ Health endpoint responded on attempt $i!"
+              break
+            fi
+            echo "Attempt $i: waiting for container..."
+          done
+
+          echo "Container logs:"
+          docker logs paypulse-test
+          docker stop paypulse-test || true
+          docker rm paypulse-test || true
+
           if [ "$STATUS" = "UP" ]; then
             echo "✅ Container smoke test PASSED"
           else
