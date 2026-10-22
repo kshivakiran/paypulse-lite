@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
+    "db:view": "ts-node src/scripts/viewDb.ts",
     "test": "jest --detectOpenHandles --forceExit"
   },
   "dependencies": {
