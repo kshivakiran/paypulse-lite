@@ -317,4 +317,4 @@ if (mongoose.connection.readyState === 1) {
 
 ## 👨‍💻 Author
 
-M.Tech Capstone Project — Agile DevOps & Full Stack Development
+K. Shiva Kiran
